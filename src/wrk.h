@@ -17,6 +17,10 @@
 #include "http_parser.h"
 #include "hdr_histogram.h"
 
+// Support for HTTP/2
+#include <nghttp2/nghttp2.h>
+
+
 #define VERSION  "4.0.0"
 #define RECVBUF  8192
 #define SAMPLES  100000000
@@ -87,6 +91,10 @@ typedef struct connection {
     char buf[RECVBUF];
     uint64_t actual_latency_start[MAXO+1];
     // Internal tracking numbers (used purely for debugging):
+
+    // Support for HTTP/2
+    Session *session;
+
 } connection;
 
 #endif /* WRK_H */

@@ -28,6 +28,7 @@ static struct config {
     bool     print_realtime_latency;
     char    *script;
     SSL_CTX *ctx;
+    bool     http2;
 } cfg;
 
 static struct {
@@ -283,37 +284,47 @@ void *thread_main(void *arg) {
 
     double throughput = (thread->throughput / 1000000.0) / thread->connections;
 
-    connection *c = thread->cs;
+    if (!cfg.http2) {
+        connection *c = thread->cs;
 
-    for (uint64_t i = 0; i < thread->connections; i++, c++) {
-        c->thread     = thread;
-        c->ssl        = cfg.ctx ? SSL_new(cfg.ctx) : NULL;
-        c->request    = request;
-        c->length     = length;
-        c->interval   = 1000000*thread->connections/thread->throughput;
-        c->throughput = throughput;
-        c->complete   = 0;
-        c->estimate   = 0;
-        c->sent       = 0;
-        // Stagger connects 1 msec apart within thread:
-        aeCreateTimeEvent(loop, i, delayed_initial_connect, c, NULL);
+        for (uint64_t i = 0; i < thread->connections; i++, c++) {
+            c->thread     = thread;
+            c->ssl        = cfg.ctx ? SSL_new(cfg.ctx) : NULL;
+            c->request    = request;
+            c->length     = length;
+            c->interval   = 1000000*thread->connections/thread->throughput;
+            c->throughput = throughput;
+            c->complete   = 0;
+            c->estimate   = 0;
+            c->sent       = 0;
+            // Stagger connects 1 msec apart within thread:
+            uint64_t conn_interval_ms = 1000/thread->throughput < 1 ? 1 : 1000/thread->throughput;
+            aeCreateTimeEvent(loop, i * conn_interval_ms, delayed_initial_connect, c, NULL);
+        }
+
+        uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections);
+        uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections);
+
+        aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
+        aeCreateTimeEvent(loop, timeout_delay, check_timeouts, thread, NULL);
+
+        thread->start = time_us();
+        aeMain(loop);
+
+        aeDeleteEventLoop(loop);
+        zfree(thread->cs);
+        if (cfg.print_realtime_latency && thread->tid == 0) fclose(thread->ff);
+
+        return NULL;
+    }
+    else {
+
     }
 
-    uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections);
-    uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections);
-
-    aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
-    aeCreateTimeEvent(loop, timeout_delay, check_timeouts, thread, NULL);
-
-    thread->start = time_us();
-    aeMain(loop);
-
-    aeDeleteEventLoop(loop);
-    zfree(thread->cs);
-    if (cfg.print_realtime_latency && thread->tid == 0) fclose(thread->ff);
-
-    return NULL;
 }
+
+
+
 
 static int connect_socket(thread *thread, connection *c) {
     struct addrinfo *addr = thread->addr;
@@ -731,6 +742,7 @@ static struct option longopts[] = {
     { "help",           no_argument,       NULL, 'h' },
     { "version",        no_argument,       NULL, 'v' },
     { "rate",           required_argument, NULL, 'R' },
+    { "http2",          required_argument, NULL, 'h' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -748,7 +760,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->print_realtime_latency = false;
     cfg->dist = 0;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrv?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrvh?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
@@ -799,6 +811,13 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 printf("Copyright (C) 2012 Will Glozer\n");
                 break;
             case 'h':
+                if (!strcmp(optarg, "1"))
+                    cfg->http2 = false;
+                else if (!strcmp(optarg, "2"))
+                    cfg->http2 = true;
+                else
+                    cfg->http2 = false;
+
             case '?':
             case ':':
             default:
