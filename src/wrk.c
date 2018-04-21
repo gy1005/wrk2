@@ -48,6 +48,7 @@ static struct http_parser_settings parser_settings = {
     .on_message_complete = response_complete
 };
 
+
 static volatile sig_atomic_t stop = 0;
 
 static void handler(int sig) {
@@ -297,30 +298,52 @@ void *thread_main(void *arg) {
             c->complete   = 0;
             c->estimate   = 0;
             c->sent       = 0;
+            c->http2      = false;
             // Stagger connects 1 msec apart within thread:
             uint64_t conn_interval_ms = 1000/thread->throughput < 1 ? 1 : 1000/thread->throughput;
             aeCreateTimeEvent(loop, i * conn_interval_ms, delayed_initial_connect, c, NULL);
         }
 
-        uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections);
-        uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections);
-
-        aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
-        aeCreateTimeEvent(loop, timeout_delay, check_timeouts, thread, NULL);
-
-        thread->start = time_us();
-        aeMain(loop);
-
-        aeDeleteEventLoop(loop);
-        zfree(thread->cs);
-        if (cfg.print_realtime_latency && thread->tid == 0) fclose(thread->ff);
-
-        return NULL;
+        
     }
     else {
+        connection *c = thread->cs;
 
+        for (uint64_t i = 0; i < thread->connections; i++, c++) {
+            c->thread     = thread;
+            c->ssl        = cfg.ctx ? SSL_new(cfg.ctx) : NULL;
+            c->request    = request;
+            c->length     = length;
+            c->interval   = 1000000*thread->connections/thread->throughput;
+            c->throughput = throughput;
+            c->complete   = 0;
+            c->estimate   = 0;
+            c->sent       = 0;
+            c->http2      = true;
+
+            
+            c->session    = create_http2_session(c, http2_response_complete);
+            
+            // Stagger connects 1 msec apart within thread:
+            uint64_t conn_interval_ms = 1000/thread->throughput < 1 ? 1 : 1000/thread->throughput;
+            aeCreateTimeEvent(loop, i * conn_interval_ms, delayed_initial_connect, c, NULL);
+        }
     }
 
+    uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections);
+    uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections);
+
+    aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
+    aeCreateTimeEvent(loop, timeout_delay, check_timeouts, thread, NULL);
+
+    thread->start = time_us();
+    aeMain(loop);
+
+    aeDeleteEventLoop(loop);
+    zfree(thread->cs);
+    if (cfg.print_realtime_latency && thread->tid == 0) fclose(thread->ff);
+
+    return NULL;
 }
 
 
@@ -550,6 +573,65 @@ static int delay_request(aeEventLoop *loop, long long id, void *data) {
     return AE_NOMORE;
 }
 
+static int http2_response_complete(http2_session *sess, uint32_t stream_id){
+    connection *c = sess->conn;
+    thread *thread = c->thread;
+    uint64_t now = time_us();
+
+    thread->complete++;
+    //printf("complete %"PRIu64"\n", thread->complete);
+    thread->requests++;
+
+    // TODO: Check the status code in the header and script response. 
+
+    if (now >= thread->stop_at) {
+        aeStop(thread->loop);
+        goto done;
+    }
+
+    if (cfg.record_all_responses) {
+        //printf("complete %"PRIu64" @ %"PRIu64"\n", c->complete, now);
+        
+        char stream_id_str[10];
+        sprintf(stream_id_str, "%d", stream_id);
+        uint64_t *req_start = malloc(sizeof(uint64_t));
+        int rv;
+        rv = hashmap_get(sess->req_timestamps, stream_id_str, (void**) (&req_start));
+        assert (rv == MAP_OK);
+        assert(now > *req_start);
+        rv = hashmap_remove(sess->req_timestamps, stream_id_str);
+        assert (rv == MAP_OK);
+       
+
+        uint64_t actual_latency_timing = now - *req_start;
+        free(req_start);
+
+        hdr_record_value(thread->latency_histogram, actual_latency_timing);
+        hdr_record_value(thread->real_latency_histogram, actual_latency_timing);
+        thread->monitored++;
+        thread->accum_latency += actual_latency_timing;
+        if (thread->monitored == thread->target) {       
+            if (cfg.print_realtime_latency && thread->tid == 0) {
+                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_latency_histogram, 99));
+                fflush(thread->ff);
+            }
+            thread->monitored = 0;
+            thread->accum_latency = 0;
+            hdr_reset(thread->real_latency_histogram);
+        }
+        if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
+            raw_latency[thread->tid][thread->complete] = actual_latency_timing;
+    }
+
+    // Count all responses (including pipelined ones:)
+    c->complete++;
+
+    done:
+        return 0;
+
+
+}
+
 static int response_complete(http_parser *parser) {
     connection *c = parser->data;
     thread *thread = c->thread;
@@ -653,54 +735,136 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
         }
     }
 
-    if (!c->written && cfg.dynamic) {
-        script_request(thread->L, &c->request, &c->length);
+    
+    if (cfg.http2) {
+
+        
+
+        #define MAKE_NV(NAME, VALUE, VALUELEN)                                         \
+        {                                                                               \
+            (uint8_t *)NAME, (uint8_t *)VALUE, sizeof(NAME) - 1, VALUELEN,             \
+                NGHTTP2_NV_FLAG_NONE                                                   \
+        }
+
+        #define MAKE_NV2(NAME, VALUE)                                                  \
+        {                                                                            \
+            (uint8_t *)NAME, (uint8_t *)VALUE, sizeof(NAME) - 1, sizeof(VALUE) - 1,    \
+                NGHTTP2_NV_FLAG_NONE                                                   \
+        }
+
+        #define ARRLEN(x) (sizeof(x) / sizeof(x[0]))
+
+        if (!c->written && cfg.dynamic) 
+           script_http2_request(thread->L, c->session->h2_req);
+         
+        int32_t stream_id;
+        nghttp2_nv hdrs[] = {
+            MAKE_NV2(":method", "GET"),
+            MAKE_NV2(":scheme", c->session->h2_req->scheme),
+            MAKE_NV2(":path", c->session->h2_req->path)
+        };
+        fprintf(stderr, "Request headers:\n");
+        print_headers(stderr, hdrs, ARRLEN(hdrs));
+ 
+        stream_id = nghttp2_submit_request(c->session->session_, NULL, hdrs, ARRLEN(hdrs), NULL, NULL);
+
+        if (stream_id < 0) 
+            errx(1, "Could not submit HTTP request: %s", nghttp2_strerror(stream_id));
+
+       
+        char *data_ptr;
+        c->length = nghttp2_session_mem_send(c->session->session_, (const uint8_t **) &data_ptr);
+        
+        if (c->length > 0) {
+            char *buf = data_ptr + c->written;
+            size_t len = c->length  - c->written;
+            size_t n;
+
+            switch (sock.write(c, buf, len, &n)) {
+                case OK:    break;
+                case ERROR: goto error;
+                case RETRY: return;
+            }
+
+            if (!c->written) {
+                c->start = time_us();
+                char stream_id_str[10];
+                sprintf(stream_id_str, "%d", stream_id);
+                int rv;
+                rv = hashmap_put(c->session->req_timestamps, stream_id_str, (void *)&c->start);
+                assert(rv == MAP_OK);
+                // c->actual_latency_start[c->sent & MAXO] = c->start;
+                //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
+                //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
+                c->sent ++;
+            }
+
+            c->written += n;
+            if (c->written == c->length) {
+                c->written = 0;
+                aeDeleteFileEvent(loop, fd, AE_WRITABLE);
+                aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
+            }
+            return;
+        }
     }
 
-    char  *buf = c->request + c->written;
-    size_t len = c->length  - c->written;
-    size_t n;
+    else {
+        if (!c->written && cfg.dynamic) {
+            script_request(thread->L, &c->request, &c->length);
+        }
 
+        char  *buf = c->request + c->written;
+        size_t len = c->length  - c->written;
+        size_t n;
 
-    switch (sock.write(c, buf, len, &n)) {
-        case OK:    break;
-        case ERROR: goto error;
-        case RETRY: return;
+        switch (sock.write(c, buf, len, &n)) {
+            case OK:    break;
+            case ERROR: goto error;
+            case RETRY: return;
+        }
+
+        if (!c->written) {
+            c->start = time_us();
+            c->actual_latency_start[c->sent & MAXO] = c->start;
+            //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
+            //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
+            c->sent ++;
+        }
+
+        c->written += n;
+        if (c->written == c->length) {
+            c->written = 0;
+            aeDeleteFileEvent(loop, fd, AE_WRITABLE);
+            aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
+        }
+        return;
     }
-    if (!c->written) {
-        c->start = time_us();
-        c->actual_latency_start[c->sent & MAXO] = c->start;
-        //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
-        //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
-        c->sent ++;
-    }
-
-    c->written += n;
-    if (c->written == c->length) {
-        c->written = 0;
-        aeDeleteFileEvent(loop, fd, AE_WRITABLE);
-        aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
-    }
-    return;
-
-  error:
-    thread->errors.write++;
-    reconnect_socket(thread, c);
+    error:
+        thread->errors.write++;
+        reconnect_socket(thread, c);
 }
 
 
 static void socket_readable(aeEventLoop *loop, int fd, void *data, int mask) {
     connection *c = data;
     size_t n;
-
+   
     do {
         switch (sock.read(c, &n)) {
             case OK:    break;
             case ERROR: goto error;
             case RETRY: return;
         }
+        if (cfg.http2) {
+            if (nghttp2_session_mem_recv(c->session->session_, (const uint8_t *) c->buf, n) != n) goto error;
+        }
 
-        if (http_parser_execute(&c->parser, &parser_settings, c->buf, n) != n) goto error;
+        else {
+            if (http_parser_execute(&c->parser, &parser_settings, c->buf, n) != n) goto error;
+        }
+
+        
         c->thread->bytes += n;
     } while (n == RECVBUF && sock.readable(c) > 0);
 
@@ -742,7 +906,7 @@ static struct option longopts[] = {
     { "help",           no_argument,       NULL, 'h' },
     { "version",        no_argument,       NULL, 'v' },
     { "rate",           required_argument, NULL, 'R' },
-    { "http2",          required_argument, NULL, 'h' },
+    { "vhttp",          required_argument, NULL, 'V' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -760,7 +924,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->print_realtime_latency = false;
     cfg->dist = 0;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrvh?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrvV?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
@@ -810,7 +974,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 printf("wrk %s [%s] ", VERSION, aeGetApiName());
                 printf("Copyright (C) 2012 Will Glozer\n");
                 break;
-            case 'h':
+            case 'V':
                 if (!strcmp(optarg, "1"))
                     cfg->http2 = false;
                 else if (!strcmp(optarg, "2"))

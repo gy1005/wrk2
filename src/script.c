@@ -140,6 +140,14 @@ void script_init(lua_State *L, thread *t, int argc, char **argv) {
     lua_pop(t->L, 1);
 }
 
+void script_http2_request(lua_State *L, http2_request *h2_req) {
+    strcpy(h2_req->scheme, "http");
+    strcpy(h2_req->host, "128.253.128.67");
+    strcpy(h2_req->path, "/test/1");
+    strcpy(h2_req->method, "GET");
+    h2_req->port = 8082;
+}
+
 void script_request(lua_State *L, char **buf, size_t *len) {
     int pop = 1;
     lua_getglobal(L, "request");

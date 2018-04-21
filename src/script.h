@@ -33,4 +33,7 @@ void buffer_append(buffer *, const char *, size_t);
 void buffer_reset(buffer *);
 char *buffer_pushlstring(lua_State *, char *);
 
+// http2
+void script_http2_request(lua_State *L, http2_request *h2_req);
+
 #endif /* SCRIPT_H */

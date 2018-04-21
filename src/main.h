@@ -40,6 +40,8 @@ static void socket_connected(aeEventLoop *, int, void *, int);
 static void socket_writeable(aeEventLoop *, int, void *, int);
 static void socket_readable(aeEventLoop *, int, void *, int);
 
+
+
 static int response_complete(http_parser *);
 static int header_field(http_parser *, const char *, size_t);
 static int header_value(http_parser *, const char *, size_t);
@@ -53,5 +55,8 @@ static void print_stats_header();
 static void print_stats(char *, stats *, char *(*)(long double));
 static void print_stats_latency(stats *);
 static void print_hdr_latency(struct hdr_histogram*, const char*);
+
+// http2 support
+static int http2_response_complete(http2_session *sess, uint32_t stream_id);
 
 #endif /* MAIN_H */

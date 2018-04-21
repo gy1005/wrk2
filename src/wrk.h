@@ -19,6 +19,7 @@
 
 // Support for HTTP/2
 #include <nghttp2/nghttp2.h>
+#include "http2_session.h"
 
 
 #define VERSION  "4.0.0"
@@ -32,6 +33,7 @@
 #define MAXL 1000000
 #define MAXO 16383
 #define MAXTHREADS 40
+
 
 
 typedef struct {
@@ -66,6 +68,7 @@ typedef struct {
     char  *cursor;
 } buffer;
 
+struct http2_session;
 typedef struct connection {
     thread *thread;
     http_parser parser;
@@ -93,8 +96,16 @@ typedef struct connection {
     // Internal tracking numbers (used purely for debugging):
 
     // Support for HTTP/2
-    Session *session;
+    bool http2;
+    struct http2_session *session;
+
+
 
 } connection;
+
+
+
+
+
 
 #endif /* WRK_H */
