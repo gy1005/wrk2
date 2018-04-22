@@ -145,7 +145,7 @@ void script_http2_request(lua_State *L, http2_request *h2_req) {
     strcpy(h2_req->host, "128.253.128.67");
     strcpy(h2_req->path, "/test/1");
     strcpy(h2_req->method, "GET");
-    h2_req->port = 8082;
+    h2_req->port = 8084;
 }
 
 void script_request(lua_State *L, char **buf, size_t *len) {

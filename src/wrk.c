@@ -83,6 +83,9 @@ static void usage() {
 }
 
 int main(int argc, char **argv) {
+
+
+
     char *url, **headers = zmalloc(argc * sizeof(char *));
     struct http_parser_url parts = {};
 
@@ -90,6 +93,9 @@ int main(int argc, char **argv) {
         usage();
         exit(1);
     }
+
+
+
 
     char *schema  = copy_url_part(url, &parts, UF_SCHEMA);
     char *host    = copy_url_part(url, &parts, UF_HOST);
@@ -323,7 +329,8 @@ void *thread_main(void *arg) {
 
             
             c->session    = create_http2_session(c, http2_response_complete);
-            
+            send_client_connection_header(c->session);
+
             // Stagger connects 1 msec apart within thread:
             uint64_t conn_interval_ms = 1000/thread->throughput < 1 ? 1 : 1000/thread->throughput;
             aeCreateTimeEvent(loop, i * conn_interval_ms, delayed_initial_connect, c, NULL);
@@ -573,7 +580,7 @@ static int delay_request(aeEventLoop *loop, long long id, void *data) {
     return AE_NOMORE;
 }
 
-static int http2_response_complete(http2_session *sess, uint32_t stream_id){
+static int http2_response_complete(http2_session *sess, int32_t stream_id){
     connection *c = sess->conn;
     thread *thread = c->thread;
     uint64_t now = time_us();
@@ -591,20 +598,25 @@ static int http2_response_complete(http2_session *sess, uint32_t stream_id){
 
     if (cfg.record_all_responses) {
         //printf("complete %"PRIu64" @ %"PRIu64"\n", c->complete, now);
-        
-        char stream_id_str[10];
-        sprintf(stream_id_str, "%d", stream_id);
-        uint64_t *req_start = malloc(sizeof(uint64_t));
-        int rv;
-        rv = hashmap_get(sess->req_timestamps, stream_id_str, (void**) (&req_start));
-        assert (rv == MAP_OK);
-        assert(now > *req_start);
-        rv = hashmap_remove(sess->req_timestamps, stream_id_str);
-        assert (rv == MAP_OK);
+
+
+        timestamp *ts;
+        HASH_FIND_INT(sess->req_timestamps, &stream_id, ts);
+        if (ts == NULL) {
+
+            goto done;
+        }
+
+
+        assert(now > ts->time);
+
+
        
 
-        uint64_t actual_latency_timing = now - *req_start;
-        free(req_start);
+        uint64_t actual_latency_timing = now - ts->time;
+//        printf("actual_latency_timing = %d\n", actual_latency_timing);
+        HASH_DEL(sess->req_timestamps, ts);
+
 
         hdr_record_value(thread->latency_histogram, actual_latency_timing);
         hdr_record_value(thread->real_latency_histogram, actual_latency_timing);
@@ -738,75 +750,82 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
     
     if (cfg.http2) {
 
-        
-
-        #define MAKE_NV(NAME, VALUE, VALUELEN)                                         \
-        {                                                                               \
-            (uint8_t *)NAME, (uint8_t *)VALUE, sizeof(NAME) - 1, VALUELEN,             \
-                NGHTTP2_NV_FLAG_NONE                                                   \
-        }
 
         #define MAKE_NV2(NAME, VALUE)                                                  \
-        {                                                                            \
-            (uint8_t *)NAME, (uint8_t *)VALUE, sizeof(NAME) - 1, sizeof(VALUE) - 1,    \
-                NGHTTP2_NV_FLAG_NONE                                                   \
+                {                                                                            \
+                    (uint8_t *)(NAME), (uint8_t *)(VALUE), sizeof(NAME) - 1, sizeof(VALUE) - 1,    \
+                        NGHTTP2_NV_FLAG_NONE                                                   \
+                }
+
+        if (!c->written && cfg.dynamic)
+            script_http2_request(thread->L, c->session->h2_req);
+
+        else {
+            strcpy(c->session->h2_req->scheme, "https");
+            strcpy(c->session->h2_req->host, "128.253.128.67");
+            strcpy(c->session->h2_req->path, "/test/1");
+            strcpy(c->session->h2_req->method, "GET");
+            c->session->h2_req->port = 8084;
+
         }
 
-        #define ARRLEN(x) (sizeof(x) / sizeof(x[0]))
-
-        if (!c->written && cfg.dynamic) 
-           script_http2_request(thread->L, c->session->h2_req);
-         
-        int32_t stream_id;
         nghttp2_nv hdrs[] = {
-            MAKE_NV2(":method", "GET"),
-            MAKE_NV2(":scheme", c->session->h2_req->scheme),
-            MAKE_NV2(":path", c->session->h2_req->path)
+                MAKE_NV2(":method", "GET"),
+                MAKE_NV2(":scheme", "https"),
+                MAKE_NV2(":path", "/test/1"),
+                MAKE_NV2(":authority", "128.253.128.67:8084")
+
         };
-        fprintf(stderr, "Request headers:\n");
-        print_headers(stderr, hdrs, ARRLEN(hdrs));
- 
+
+//        fprintf(stderr, "Request headers:\n");
+//        print_headers(stderr, hdrs, ARRLEN(hdrs));
+
+        int32_t stream_id = 0;
         stream_id = nghttp2_submit_request(c->session->session_, NULL, hdrs, ARRLEN(hdrs), NULL, NULL);
 
-        if (stream_id < 0) 
+
+        if (stream_id < 0)
             errx(1, "Could not submit HTTP request: %s", nghttp2_strerror(stream_id));
 
-       
-        char *data_ptr;
-        c->length = nghttp2_session_mem_send(c->session->session_, (const uint8_t **) &data_ptr);
-        
-        if (c->length > 0) {
-            char *buf = data_ptr + c->written;
-            size_t len = c->length  - c->written;
-            size_t n;
 
-            switch (sock.write(c, buf, len, &n)) {
+        char *data_ptr;
+        ssize_t length;
+        length = nghttp2_session_mem_send(c->session->session_, (const uint8_t **) &data_ptr);
+
+
+
+        do {
+            size_t n;
+            switch (sock.write(c, data_ptr, (size_t) length, &n)) {
                 case OK:    break;
                 case ERROR: goto error;
                 case RETRY: return;
             }
+          length = nghttp2_session_mem_send(c->session->session_, (const uint8_t **) &data_ptr);
+        } while (nghttp2_session_want_write(c->session->session_));
+        c->start = time_us();
+        timestamp *ts = malloc(sizeof(timestamp));
+        ts->id = stream_id;
+        ts->time = c->start;
+        HASH_ADD_INT(c->session->req_timestamps, id, ts);
 
-            if (!c->written) {
-                c->start = time_us();
-                char stream_id_str[10];
-                sprintf(stream_id_str, "%d", stream_id);
-                int rv;
-                rv = hashmap_put(c->session->req_timestamps, stream_id_str, (void *)&c->start);
-                assert(rv == MAP_OK);
-                // c->actual_latency_start[c->sent & MAXO] = c->start;
-                //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
-                //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
-                c->sent ++;
-            }
 
-            c->written += n;
-            if (c->written == c->length) {
-                c->written = 0;
-                aeDeleteFileEvent(loop, fd, AE_WRITABLE);
-                aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
-            }
-            return;
-        }
+
+
+        // c->actual_latency_start[c->sent & MAXO] = c->start;
+        //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
+        //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
+        c->sent ++;
+
+        c->written = 0;
+
+
+
+        aeDeleteFileEvent(loop, fd, AE_WRITABLE);
+        aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
+
+        return;
+
     }
 
     else {
@@ -924,7 +943,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->print_realtime_latency = false;
     cfg->dist = 0;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrvV?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:V:LPpBrvh?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
@@ -981,7 +1000,8 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                     cfg->http2 = true;
                 else
                     cfg->http2 = false;
-
+                break;
+            case 'h':
             case '?':
             case ':':
             default:

@@ -20,6 +20,7 @@
 // Support for HTTP/2
 #include <nghttp2/nghttp2.h>
 #include "http2_session.h"
+# include "uthash.h"
 
 
 #define VERSION  "4.0.0"

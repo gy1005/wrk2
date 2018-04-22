@@ -57,6 +57,6 @@ static void print_stats_latency(stats *);
 static void print_hdr_latency(struct hdr_histogram*, const char*);
 
 // http2 support
-static int http2_response_complete(http2_session *sess, uint32_t stream_id);
+static int http2_response_complete(http2_session *sess, int32_t stream_id);
 
 #endif /* MAIN_H */
