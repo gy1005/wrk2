@@ -6,6 +6,8 @@
 #include "hdr_histogram.h"
 #include "stats.h"
 #include "assert.h"
+#include <opentracing/tracer.h>
+
 
 // Max recordable latency of 1 day
 #define MAX_LATENCY 24L * 60 * 60 * 1000000
