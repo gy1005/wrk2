@@ -1,6 +1,5 @@
 *.o
 *.a
-*.txt
 wrk
 
 run.sh
