@@ -65,8 +65,8 @@ lua_State *script_create(char *file, char *url, char **headers) {
     }
 
     const table_field fields[] = {
-        { "lookup",  LUA_TFUNCTION, script_wrk_lookup  },
-        { "connect", LUA_TFUNCTION, script_wrk_connect },
+        { "lookup",  LUA_TFUNCTION, (void *) script_wrk_lookup  },
+        { "connect", LUA_TFUNCTION, (void *) script_wrk_connect },
         { "path",    LUA_TSTRING,   path               },
         { NULL,      0,             NULL               },
     };

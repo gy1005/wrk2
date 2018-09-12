@@ -160,10 +160,12 @@ int main(int argc, char **argv) {
         }
     }
 
-//    struct sigaction sa = {
-//        sa_handler : handler,
-//        sa_flags   : 0,
-//    };
+    struct sigaction sa = {
+        sa_handler : handler,
+        sa_flags   : 0,
+    };
+    sa.sa_handler = handler;
+
     sigfillset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
 
