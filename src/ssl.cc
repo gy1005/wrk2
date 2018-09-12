@@ -30,7 +30,7 @@ SSL_CTX *ssl_init() {
     SSL_library_init();
     OpenSSL_add_all_algorithms();
 
-    if ((locks = calloc(CRYPTO_num_locks(), sizeof(pthread_mutex_t)))) {
+    if ((locks = static_cast<pthread_mutex_t *>(calloc(CRYPTO_num_locks(), sizeof(pthread_mutex_t))))) {
         for (int i = 0; i < CRYPTO_num_locks(); i++) {
             pthread_mutex_init(&locks[i], NULL);
         }

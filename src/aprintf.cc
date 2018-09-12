@@ -16,7 +16,7 @@ char *aprintf(char **s, const char *fmt, ...) {
 
     len = *s ? strlen(*s) : 0;
 
-    if ((*s = realloc(*s, (len + n) * sizeof(char)))) {
+    if ((*s = static_cast<char *>(realloc(*s, (len + n) * sizeof(char))))) {
         c = *s + len;
         va_start(ap, fmt);
         vsnprintf(c, n, fmt, ap);

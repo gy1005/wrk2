@@ -53,7 +53,7 @@ lua_State *script_create(char *file, char *url, char **headers) {
     luaL_register(L, NULL, addrlib);
     luaL_newmetatable(L, "wrk.stats");
     luaL_register(L, NULL, statslib);
-    luaL_newmetatable(L, "wrk.thread");
+    luaL_newmetatable(L, "wrk.Thread");
     luaL_register(L, NULL, threadlib);
 
     struct http_parser_url parts = {};
@@ -111,18 +111,18 @@ bool script_resolve(lua_State *L, char *host, char *service) {
     return count > 0;
 }
 
-void script_push_thread(lua_State *L, thread *t) {
-    thread **ptr = (thread **) lua_newuserdata(L, sizeof(thread **));
+void script_push_thread(lua_State *L, Thread *t) {
+    Thread **ptr = (Thread **) lua_newuserdata(L, sizeof(Thread **));
     *ptr = t;
-    luaL_getmetatable(L, "wrk.thread");
+    luaL_getmetatable(L, "wrk.Thread");
     lua_setmetatable(L, -2);
 }
 
-void script_init(lua_State *L, thread *t, int argc, char **argv) {
+void script_init(lua_State *L, Thread *t, int argc, char **argv) {
     lua_getglobal(t->L, "wrk");
 
     script_push_thread(t->L, t);
-    lua_setfield(t->L, -2, "thread");
+    lua_setfield(t->L, -2, "Thread");
 
     lua_getglobal(L, "wrk");
     lua_getfield(L, -1, "setup");
@@ -150,12 +150,12 @@ void script_request(lua_State *L, char **buf, size_t *len) {
     }
     lua_call(L, 0, 1);
     const char *str = lua_tolstring(L, -1, len);
-    *buf = realloc(*buf, *len);
+    *buf = static_cast<char *>(realloc(*buf, *len));
     memcpy(*buf, str, *len);
     lua_pop(L, pop);
 }
 
-void script_response(lua_State *L, int status, buffer *headers, buffer *body) {
+void script_response(lua_State *L, int status, Buffer *headers, Buffer *body) {
     lua_getglobal(L, "response");
     lua_pushinteger(L, status);
     lua_newtable(L);
@@ -192,8 +192,8 @@ bool script_has_done(lua_State *L) {
     return script_is_function(L, "done");
 }
 
-void script_header_done(lua_State *L, luaL_Buffer *buffer) {
-    luaL_pushresult(buffer);
+void script_header_done(lua_State *L, luaL_Buffer *Buffer) {
+    luaL_pushresult(Buffer);
 }
 
 void script_summary(lua_State *L, uint64_t duration, uint64_t requests, uint64_t bytes) {
@@ -249,7 +249,7 @@ void script_done(lua_State *L, stats *latency, stats *requests) {
 }
 
 static int verify_request(http_parser *parser) {
-    size_t *count = parser->data;
+    size_t *count = static_cast<size_t *>(parser->data);
     (*count)++;
     return 0;
 }
@@ -290,19 +290,19 @@ size_t script_verify_request(lua_State *L) {
 }
 
 static struct addrinfo *checkaddr(lua_State *L) {
-    struct addrinfo *addr = luaL_checkudata(L, -1, "wrk.addr");
+    struct addrinfo *addr = static_cast<addrinfo *>(luaL_checkudata(L, -1, "wrk.addr"));
     luaL_argcheck(L, addr != NULL, 1, "`addr' expected");
     return addr;
 }
 
 void script_addr_copy(struct addrinfo *src, struct addrinfo *dst) {
     *dst = *src;
-    dst->ai_addr = zmalloc(src->ai_addrlen);
+    dst->ai_addr = static_cast<sockaddr *>(zmalloc(src->ai_addrlen));
     memcpy(dst->ai_addr, src->ai_addr, src->ai_addrlen);
 }
 
 struct addrinfo *script_addr_clone(lua_State *L, struct addrinfo *addr) {
-    struct addrinfo *udata = lua_newuserdata(L, sizeof(*udata));
+    struct addrinfo *udata = static_cast<addrinfo *>(lua_newuserdata(L, sizeof(*udata)));
     luaL_getmetatable(L, "wrk.addr");
     lua_setmetatable(L, -2);
     script_addr_copy(addr, udata);
@@ -332,7 +332,7 @@ static int script_addr_gc(lua_State *L) {
 }
 
 static stats *checkstats(lua_State *L) {
-    stats **s = luaL_checkudata(L, 1, "wrk.stats");
+    stats **s = static_cast<stats **>(luaL_checkudata(L, 1, "wrk.stats"));
     luaL_argcheck(L, s != NULL, 1, "`stats' expected");
     return *s;
 }
@@ -378,14 +378,14 @@ static int script_stats_len(lua_State *L) {
     return 1;
 }
 
-static thread *checkthread(lua_State *L) {
-    thread **t = luaL_checkudata(L, 1, "wrk.thread");
-    luaL_argcheck(L, t != NULL, 1, "`thread' expected");
+static Thread *checkthread(lua_State *L) {
+    Thread **t = static_cast<Thread **>(luaL_checkudata(L, 1, "wrk.Thread"));
+    luaL_argcheck(L, t != NULL, 1, "`Thread' expected");
     return *t;
 }
 
 static int script_thread_get(lua_State *L) {
-    thread *t = checkthread(L);
+    Thread *t = checkthread(L);
     const char *key = lua_tostring(L, -1);
     lua_getglobal(t->L, key);
     script_copy_value(t->L, L, -1);
@@ -394,7 +394,7 @@ static int script_thread_get(lua_State *L) {
 }
 
 static int script_thread_set(lua_State *L) {
-    thread *t = checkthread(L);
+    Thread *t = checkthread(L);
     const char *name = lua_tostring(L, -2);
     script_copy_value(L, t->L, -1);
     lua_setglobal(t->L, name);
@@ -402,13 +402,13 @@ static int script_thread_set(lua_State *L) {
 }
 
 static int script_thread_stop(lua_State *L) {
-    thread *t = checkthread(L);
+    Thread *t = checkthread(L);
     aeStop(t->loop);
     return 0;
 }
 
 static int script_thread_index(lua_State *L) {
-    thread *t = checkthread(L);
+    Thread *t = checkthread(L);
     const char *key = lua_tostring(L, 2);
     if (!strcmp("get",  key)) lua_pushcfunction(L, script_thread_get);
     if (!strcmp("set",  key)) lua_pushcfunction(L, script_thread_set);
@@ -418,15 +418,15 @@ static int script_thread_index(lua_State *L) {
 }
 
 static int script_thread_newindex(lua_State *L) {
-    thread *t = checkthread(L);
+    Thread *t = checkthread(L);
     const char *key = lua_tostring(L, -2);
     if (!strcmp("addr", key)) {
         struct addrinfo *addr = checkaddr(L);
         if (t->addr) zfree(t->addr->ai_addr);
-        t->addr = zrealloc(t->addr, sizeof(*addr));
+        t->addr = static_cast<addrinfo *>(zrealloc(t->addr, sizeof(*addr)));
         script_addr_copy(addr, t->addr);
     } else {
-        luaL_error(L, "cannot set '%s' on thread", luaL_typename(L, -1));
+        luaL_error(L, "cannot set '%s' on Thread", luaL_typename(L, -1));
     }
     return 0;
 }
@@ -495,7 +495,7 @@ void script_copy_value(lua_State *src, lua_State *dst, int index) {
             lua_pop(src, 1);
             break;
         default:
-            luaL_error(src, "cannot transfer '%s' to thread", luaL_typename(src, index));
+            luaL_error(src, "cannot transfer '%s' to Thread", luaL_typename(src, index));
     }
 }
 
@@ -549,18 +549,18 @@ static void set_fields(lua_State *L, int index, const table_field *fields) {
     }
 }
 
-void buffer_append(buffer *b, const char *data, size_t len) {
+void buffer_append(Buffer *b, const char *data, size_t len) {
     size_t used = b->cursor - b->buffer;
     while (used + len + 1 >= b->length) {
         b->length += 1024;
-        b->buffer  = realloc(b->buffer, b->length);
+        b->buffer  = static_cast<char *>(realloc(b->buffer, b->length));
         b->cursor  = b->buffer + used;
     }
     memcpy(b->cursor, data, len);
     b->cursor += len;
 }
 
-void buffer_reset(buffer *b) {
+void buffer_reset(Buffer *b) {
     b->cursor = b->buffer;
 }
 

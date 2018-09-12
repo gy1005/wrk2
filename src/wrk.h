@@ -30,7 +30,7 @@
 #define MAXTHREADS 40
 
 
-typedef struct {
+struct Thread {
     pthread_t thread;
     aeEventLoop *loop;
     struct addrinfo *addr;
@@ -51,19 +51,19 @@ typedef struct {
     struct hdr_histogram *real_latency_histogram;
     tinymt64_t rand;
     lua_State *L;
-    errors errors;
+    struct errors errors;
     struct connection *cs;
     FILE* ff;
-} thread;
+};
 
-typedef struct {
+struct Buffer {
     char  *buffer;
     size_t length;
     char  *cursor;
 } buffer;
 
-typedef struct connection {
-    thread *thread;
+struct connection {
+    Thread *thread;
     http_parser parser;
     enum {
         FIELD, VALUE
@@ -82,11 +82,11 @@ typedef struct connection {
     size_t length;
     size_t written;
     uint64_t pending;
-    buffer headers;
-    buffer body;
+    Buffer headers;
+    Buffer body;
     char buf[RECVBUF];
     uint64_t actual_latency_start[MAXO+1];
     // Internal tracking numbers (used purely for debugging):
-} connection;
+};
 
 #endif /* WRK_H */
