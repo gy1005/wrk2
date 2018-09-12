@@ -435,7 +435,6 @@ static int script_wrk_lookup(lua_State *L) {
     struct addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-
     int rc, index = 1;
 
     const char *host    = lua_tostring(L, -2);

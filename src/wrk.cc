@@ -45,9 +45,8 @@ static struct sock sock = {
     .readable = sock_readable
 };
 
-static struct http_parser_settings parser_settings = {
-    on_message_complete : response_complete
-};
+static struct http_parser_settings parser_settings = {};
+parser_settings.on_message_complete = response_complete;
 
 static volatile sig_atomic_t stop = 0;
 
@@ -160,11 +159,9 @@ int main(int argc, char **argv) {
         }
     }
 
-    struct sigaction sa = {
-        sa_handler : handler,
-        sa_flags   : 0,
-    };
+    struct sigaction sa = {};
     sa.sa_handler = handler;
+    sa.sa_flags = 0;
 
     sigfillset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
