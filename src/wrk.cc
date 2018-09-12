@@ -6,7 +6,7 @@
 #include "hdr_histogram.h"
 #include "stats.h"
 #include "assert.h"
-#include <opentracing/tracer.h>
+//#include <opentracing/tracer.h>
 
 
 // Max recordable latency of 1 day
@@ -46,7 +46,7 @@ static struct sock sock = {
 };
 
 static struct http_parser_settings parser_settings = {
-    .on_message_complete = response_complete
+    on_message_complete : response_complete
 };
 
 static volatile sig_atomic_t stop = 0;
@@ -83,7 +83,7 @@ static void usage() {
 }
 
 int main(int argc, char **argv) {
-    char *url, **headers = zmalloc(argc * sizeof(char *));
+    char *url, **headers = static_cast<char **>(zmalloc(argc * sizeof(char *)));
     struct http_parser_url parts = {};
 
     if (parse_args(&cfg, &url, &parts, headers, argc, argv)) {
@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
 
     pthread_mutex_init(&statistics.mutex, NULL);
     statistics.requests = stats_alloc(10);
-    thread *threads = zcalloc(cfg.threads * sizeof(thread));
+    Thread *threads = static_cast<Thread *>(zcalloc(cfg.threads * sizeof(Thread)));
 
     hdr_init(1, MAX_LATENCY, 3, &(statistics.requests->histogram));
 
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
     uint64_t stop_at     = time_us() + (cfg.duration * 1000000);
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
-        thread *t = &threads[i];
+        Thread *t = &threads[i];
         t->tid           = i;
         t->loop          = aeCreateEventLoop(10 + cfg.connections * 3);
         t->connections   = connections;
@@ -155,22 +155,22 @@ int main(int argc, char **argv) {
 
         if (!t->loop || pthread_create(&t->thread, NULL, &thread_main, t)) {
             char *msg = strerror(errno);
-            fprintf(stderr, "unable to create thread %"PRIu64": %s\n", i, msg);
+//            fprintf(stderr, "unable to create thread %"PRIu64": %s\n", i, msg);
             exit(2);
         }
     }
 
-    struct sigaction sa = {
-        .sa_handler = handler,
-        .sa_flags   = 0,
-    };
+//    struct sigaction sa = {
+//        sa_handler : handler,
+//        sa_flags   : 0,
+//    };
     sigfillset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
 
     char *time = format_time_s(cfg.duration);
     printf("Running %s test @ %s\n", time, url);
-    printf("  %"PRIu64" threads and %"PRIu64" connections\n",
-            cfg.threads, cfg.connections);
+//    printf("  %"PRIu64" threads and %"PRIu64" connections\n",
+//            cfg.threads, cfg.connections);
 
     uint64_t start    = time_us();
     uint64_t complete = 0;
@@ -183,14 +183,14 @@ int main(int argc, char **argv) {
     hdr_init(1, MAX_LATENCY, 3, &real_latency_histogram);
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
-        thread *t = &threads[i];
+        Thread *t = &threads[i];
         pthread_join(t->thread, NULL);
     }
 
     uint64_t runtime_us = time_us() - start;
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
-        thread *t = &threads[i];
+        Thread *t = &threads[i];
         complete += t->complete;
         bytes    += t->bytes;
 
@@ -236,8 +236,8 @@ int main(int argc, char **argv) {
 
     char *runtime_msg = format_time_us(runtime_us);
 
-    printf("  %"PRIu64" requests in %s, %sB read\n",
-            complete, runtime_msg, format_binary(bytes));
+//    printf("  %"PRIu64" requests in %s, %sB read\n",
+//            complete, runtime_msg, format_binary(bytes));
     if (errors.connect || errors.read || errors.write || errors.timeout) {
         printf("  Socket errors: connect %d, read %d, write %d, timeout %d\n",
                errors.connect, errors.read, errors.write, errors.timeout);
@@ -260,10 +260,10 @@ int main(int argc, char **argv) {
 }
 
 void *thread_main(void *arg) {
-    thread *thread = arg;
+    Thread *thread = static_cast<Thread *>(arg);
     aeEventLoop *loop = thread->loop;
 
-    thread->cs = zcalloc(thread->connections * sizeof(connection));
+    thread->cs = static_cast<connection *>(zcalloc(thread->connections * sizeof(connection)));
     tinymt64_init(&thread->rand, time_us());
     hdr_init(1, MAX_LATENCY, 3, &thread->latency_histogram);
     hdr_init(1, MAX_LATENCY, 3, &thread->real_latency_histogram);
@@ -317,7 +317,7 @@ void *thread_main(void *arg) {
     return NULL;
 }
 
-static int connect_socket(thread *thread, connection *c) {
+static int connect_socket(Thread *thread, connection *c) {
     struct addrinfo *addr = thread->addr;
     struct aeEventLoop *loop = thread->loop;
     int fd, flags;
@@ -347,7 +347,7 @@ static int connect_socket(thread *thread, connection *c) {
     return -1;
 }
 
-static int reconnect_socket(thread *thread, connection *c) {
+static int reconnect_socket(Thread *thread, connection *c) {
     aeDeleteFileEvent(thread->loop, c->fd, AE_WRITABLE | AE_READABLE);
     sock.close(c);
     close(c->fd);
@@ -355,7 +355,7 @@ static int reconnect_socket(thread *thread, connection *c) {
 }
 
 static int delayed_initial_connect(aeEventLoop *loop, long long id, void *data) {
-    connection* c = data;
+    connection* c = static_cast<connection *>(data);
     c->thread_start = time_us();
     c->thread_next  = c->thread_start;
     connect_socket(c->thread, c);
@@ -363,7 +363,7 @@ static int delayed_initial_connect(aeEventLoop *loop, long long id, void *data) 
 }
 
 static int calibrate(aeEventLoop *loop, long long id, void *data) {
-    thread *thread = data;
+    Thread *thread = static_cast<Thread *>(data);
 
     long double mean = hdr_mean(thread->latency_histogram);
     long double latency = hdr_value_at_percentile(
@@ -389,7 +389,7 @@ static int calibrate(aeEventLoop *loop, long long id, void *data) {
 }
 
 static int check_timeouts(aeEventLoop *loop, long long id, void *data) {
-    thread *thread = data;
+    Thread *thread = static_cast<Thread *>(data);
     connection *c  = thread->cs;
     uint64_t now   = time_us();
 
@@ -409,7 +409,7 @@ static int check_timeouts(aeEventLoop *loop, long long id, void *data) {
 }
 
 static int sample_rate(aeEventLoop *loop, long long id, void *data) {
-    thread *thread = data;
+    Thread *thread = static_cast<Thread *>(data);
 
     uint64_t elapsed_ms = (time_us() - thread->start) / 1000;
     uint64_t requests = (thread->requests / (double) elapsed_ms) * 1000;
@@ -425,7 +425,7 @@ static int sample_rate(aeEventLoop *loop, long long id, void *data) {
 }
 
 static int header_field(http_parser *parser, const char *at, size_t len) {
-    connection *c = parser->data;
+    connection *c = static_cast<connection *>(parser->data);
     if (c->state == VALUE) {
         *c->headers.cursor++ = '\0';
         c->state = FIELD;
@@ -435,7 +435,7 @@ static int header_field(http_parser *parser, const char *at, size_t len) {
 }
 
 static int header_value(http_parser *parser, const char *at, size_t len) {
-    connection *c = parser->data;
+    connection *c = static_cast<connection *>(parser->data);
     if (c->state == FIELD) {
         *c->headers.cursor++ = '\0';
         c->state = VALUE;
@@ -445,7 +445,7 @@ static int header_value(http_parser *parser, const char *at, size_t len) {
 }
 
 static int response_body(http_parser *parser, const char *at, size_t len) {
-    connection *c = parser->data;
+    connection *c = static_cast<connection *>(parser->data);
     buffer_append(&c->body, at, len);
     return 0;
 }
@@ -532,7 +532,7 @@ static uint64_t usec_to_next_send(connection *c) {
 }
 
 static int delay_request(aeEventLoop *loop, long long id, void *data) {
-    connection* c = data;
+    connection* c = static_cast<connection *>(data);
     uint64_t time_usec_to_wait = usec_to_next_send(c);
     if (time_usec_to_wait) {
         return round((time_usec_to_wait / 1000.0L) + 0.5); /* don't send, wait */
@@ -542,8 +542,8 @@ static int delay_request(aeEventLoop *loop, long long id, void *data) {
 }
 
 static int response_complete(http_parser *parser) {
-    connection *c = parser->data;
-    thread *thread = c->thread;
+    connection *c = static_cast<connection *>(parser->data);
+    Thread *thread = c->thread;
     uint64_t now = time_us();
     int status = parser->status_code;
 
@@ -604,7 +604,7 @@ static int response_complete(http_parser *parser) {
 }
 
 static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
-    connection *c = data;
+    connection *c = static_cast<connection *>(data);
 
     switch (sock.connect(c)) {
         case OK:    break;
@@ -628,8 +628,8 @@ static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
 }
 
 static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
-    connection *c = data;
-    thread *thread = c->thread;
+    connection *c = static_cast<connection *>(data);
+    Thread *thread = c->thread;
 
     if (!c->written) {
         uint64_t time_usec_to_wait = usec_to_next_send(c);
@@ -681,7 +681,7 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
 
 
 static void socket_readable(aeEventLoop *loop, int fd, void *data, int mask) {
-    connection *c = data;
+    connection *c = static_cast<connection *>(data);
     size_t n;
 
     do {
@@ -714,7 +714,7 @@ static char *copy_url_part(char *url, struct http_parser_url *parts, enum http_p
     if (parts->field_set & (1 << field)) {
         uint16_t off = parts->field_data[field].off;
         uint16_t len = parts->field_data[field].len;
-        part = zcalloc(len + 1 * sizeof(char));
+        part = static_cast<char *>(zcalloc(len + 1 * sizeof(char)));
         memcpy(part, &url[off], len);
     }
 

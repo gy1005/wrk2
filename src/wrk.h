@@ -62,12 +62,14 @@ struct Buffer {
     char  *cursor;
 } buffer;
 
+enum State {
+    FIELD, VALUE
+};
+
 struct connection {
     Thread *thread;
     http_parser parser;
-    enum {
-        FIELD, VALUE
-    } state;
+    State state;
     int fd;
     SSL *ssl;
     double throughput;

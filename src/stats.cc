@@ -8,7 +8,7 @@
 #include "zmalloc.h"
 
 stats *stats_alloc(uint64_t samples) {
-    stats *s = zcalloc(sizeof(stats) + sizeof(uint64_t) * samples);
+    stats *s = static_cast<stats *>(zcalloc(sizeof(stats) + sizeof(uint64_t) * samples));
     s->samples = samples;
     s->min     = UINT64_MAX;
     s->histogram = NULL;

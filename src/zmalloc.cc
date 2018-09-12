@@ -184,7 +184,7 @@ void zfree(void *ptr) {
 
 char *zstrdup(const char *s) {
     size_t l = strlen(s)+1;
-    char *p = zmalloc(l);
+    char *p = static_cast<char *>(zmalloc(l));
 
     memcpy(p,s,l);
     return p;
