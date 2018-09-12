@@ -8,17 +8,24 @@
 #include "units.h"
 #include "aprintf.h"
 
-typedef struct {
+struct units {
     int scale;
     char *base;
     char *units[];
-} units;
+};
+
+typedef struct units units;
 
 units time_units_us = {
-    .scale = 1000,
-    .base  = "us",
-    .units = { "ms", "s", NULL }
+//    .scale = 1000,
+//    .base  = "us",
+//    .units = { "ms", "s", NULL }
 };
+
+time_units_us.scale = 1000;
+
+
+time_units_us.scale = 1000;
 
 units time_units_s = {
     .scale = 60,

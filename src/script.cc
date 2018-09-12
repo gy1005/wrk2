@@ -255,16 +255,8 @@ static int verify_request(http_parser *parser) {
 }
 
 size_t script_verify_request(lua_State *L) {
-    http_parser_settings settings = {
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        verify_request
-    };
+    http_parser_settings settings = {};
+    settings.on_message_complete = verify_request;
     http_parser parser;
     char *request = NULL;
     size_t len, count = 0;
@@ -440,10 +432,10 @@ static int script_thread_newindex(lua_State *L) {
 
 static int script_wrk_lookup(lua_State *L) {
     struct addrinfo *addrs;
-    struct addrinfo hints = {
-        ai_family   : AF_UNSPEC,
-        ai_socktype : SOCK_STREAM
-    };
+    struct addrinfo hints = {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
     int rc, index = 1;
 
     const char *host    = lua_tostring(L, -2);
