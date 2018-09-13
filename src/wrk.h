@@ -17,6 +17,12 @@
 #include "http_parser.h"
 #include "hdr_histogram.h"
 
+// Support for HTTP/2
+#include <nghttp2/nghttp2.h>
+#include "http2_session.h"
+# include "uthash.h"
+
+
 #define VERSION  "4.0.0"
 #define RECVBUF  8192
 #define SAMPLES  100000000
@@ -28,6 +34,7 @@
 #define MAXL 1000000
 #define MAXO 16383
 #define MAXTHREADS 40
+
 
 
 typedef struct {
@@ -62,6 +69,7 @@ typedef struct {
     char  *cursor;
 } buffer;
 
+struct http2_session;
 typedef struct connection {
     thread *thread;
     http_parser parser;
@@ -87,6 +95,18 @@ typedef struct connection {
     char buf[RECVBUF];
     uint64_t actual_latency_start[MAXO+1];
     // Internal tracking numbers (used purely for debugging):
+
+    // Support for HTTP/2
+    bool http2;
+    struct http2_session *session;
+
+
+
 } connection;
+
+
+
+
+
 
 #endif /* WRK_H */

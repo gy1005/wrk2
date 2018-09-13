@@ -1,5 +1,5 @@
 CFLAGS  := -std=c99 -Wall -O2 -D_REENTRANT
-LIBS    := -lpthread -lm -lcrypto -lssl
+LIBS    := -lpthread -lm -lcrypto -lssl -lnghttp2
 
 TARGET  := $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
@@ -18,7 +18,8 @@ else ifeq ($(TARGET), freebsd)
 endif
 
 SRC  := wrk.c net.c ssl.c aprintf.c stats.c script.c units.c \
-		ae.c zmalloc.c http_parser.c tinymt64.c hdr_histogram.c
+		ae.c zmalloc.c http_parser.c tinymt64.c hdr_histogram.c \
+		hashmap.c http2_session.c 
 BIN  := wrk
 
 ODIR := obj

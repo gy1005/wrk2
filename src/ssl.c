@@ -23,6 +23,23 @@ static unsigned long ssl_id() {
     return (unsigned long) pthread_self();
 }
 
+static int select_next_proto_cb(SSL *ssl, unsigned char **out,
+                                unsigned char *outlen, const unsigned char *in,
+                                unsigned int inlen, void *arg) {
+    int rv;
+    (void)ssl;
+    (void)arg;
+
+    /* nghttp2_select_next_protocol() selects HTTP/2 protocol the
+       nghttp2 library supports. */
+    rv = nghttp2_select_next_protocol(out, outlen, in, inlen);
+    if (rv <= 0) {
+        printf("Server did not advertise HTTP/2 protocol\n");
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+    }
+    return SSL_TLSEXT_ERR_OK;
+}
+
 SSL_CTX *ssl_init() {
     SSL_CTX *ctx = NULL;
 
@@ -45,6 +62,8 @@ SSL_CTX *ssl_init() {
             SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_CLIENT);
         }
     }
+
+    SSL_CTX_set_next_proto_select_cb(ctx, select_next_proto_cb, NULL);
 
     return ctx;
 }
