@@ -1,7 +1,5 @@
-
-CC = g++
-CFLAGS  := -std=c++11 -Wall -O2 -D_REENTRANT
-LIBS    := -lpthread -lm -lcrypto -lssl -lopentracing
+CFLAGS  := -std=c99 -Wall -O2 -D_REENTRANT
+LIBS    := -lpthread -lm -lcrypto -lssl
 
 TARGET  := $(shell uname -s | tr '[A-Z]' '[a-z]' 2>/dev/null || echo unknown)
 
@@ -19,12 +17,12 @@ else ifeq ($(TARGET), freebsd)
 	LDFLAGS += -Wl,-E
 endif
 
-SRC  := wrk.cc net.cc ssl.cc aprintf.cc stats.cc script.cc units.cc \
-		ae.cc zmalloc.cc http_parser.cc tinymt64.cc hdr_histogram.cc
+SRC  := wrk.c net.c ssl.c aprintf.c stats.c script.c units.c \
+		ae.c zmalloc.c http_parser.c tinymt64.c hdr_histogram.c
 BIN  := wrk
 
 ODIR := obj
-OBJ  := $(patsubst %.cc,$(ODIR)/%.o,$(SRC)) $(ODIR)/bytecode.o
+OBJ  := $(patsubst %.c,$(ODIR)/%.o,$(SRC)) $(ODIR)/bytecode.o
 
 LDIR     = deps/luajit/src
 LIBS    := -lluajit $(LIBS)
@@ -51,7 +49,7 @@ $(ODIR)/bytecode.o: src/wrk.lua
 	@echo LUAJIT $<
 	@$(SHELL) -c 'cd $(LDIR) && ./luajit -b $(CURDIR)/$< $(CURDIR)/$@'
 
-$(ODIR)/%.o : %.cc
+$(ODIR)/%.o : %.c
 	@echo CC $<
 	@$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -61,8 +59,8 @@ $(LDIR)/libluajit.a:
 
 .PHONY: all clean
 .SUFFIXES:
-.SUFFIXES: .cc .o .lua
+.SUFFIXES: .c .o .lua
 
-vpath %.cc   src
+vpath %.c   src
 vpath %.h   src
 vpath %.lua scripts
