@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 2.6)
 project (wrk)
 
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pthread")
+
 
 if (UNIX)
     set(
@@ -26,8 +28,6 @@ add_executable(
     ${SOURCES}
 )
 
-#list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
-
 target_include_directories(wrk PRIVATE src)
 
 target_link_libraries (wrk ${CMAKE_THREAD_LIBS_INIT})
@@ -35,9 +35,7 @@ target_link_libraries(wrk m)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(wrk OpenSSL::SSL)
 
-#find_package(Lua53 REQUIRED)
-#target_link_libraries(wrk ${LUA53_LIBRARIES})
-
-include_directories(${CMAKE_CURRENT_LIST_DIR}/deps/luajit/src)
+find_package(Lua51 REQUIRED)
+include_directories(/usr/local/include ${LUA_INCLUDE_DIR})
 target_link_libraries(wrk ${LUA_LIBRARIES})
 

@@ -45,8 +45,18 @@ static struct sock sock = {
     .readable = sock_readable
 };
 
-static struct http_parser_settings parser_settings = {};
-parser_settings.on_message_complete = response_complete;
+struct http_parser_settings parser_settings = {
+    .on_message_begin = NULL,
+    .on_url = NULL,
+    .on_status = NULL,
+    .on_header_field = NULL,
+    .on_header_value = NULL,
+    .on_headers_complete = NULL,
+    .on_body = NULL,
+    .on_message_complete = response_complete
+};
+
+//parser_settings.on_message_complete = response_complete;
 
 static volatile sig_atomic_t stop = 0;
 

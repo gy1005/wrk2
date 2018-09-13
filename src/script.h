@@ -2,9 +2,12 @@
 #define SCRIPT_H
 
 #include <stdbool.h>
-#include <lua.h>
-#include <lualib.h>
-#include <lauxlib.h>
+extern "C" {
+    #include <lua.h>
+    #include <lualib.h>
+    #include <lauxlib.h>
+};
+
 #include <unistd.h>
 #include "stats.h"
 #include "wrk.h"

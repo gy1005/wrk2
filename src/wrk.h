@@ -60,7 +60,7 @@ struct Buffer {
     char  *buffer;
     size_t length;
     char  *cursor;
-} buffer;
+};
 
 enum State {
     FIELD, VALUE
