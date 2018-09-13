@@ -16,6 +16,8 @@
 #include "ae.h"
 #include "http_parser.h"
 #include "hdr_histogram.h"
+#include <string>
+#include <iostream>
 
 #define VERSION  "4.0.0"
 #define RECVBUF  8192

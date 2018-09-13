@@ -39,3 +39,6 @@ find_package(Lua51 REQUIRED)
 include_directories(/usr/local/include ${LUA_INCLUDE_DIR})
 target_link_libraries(wrk ${LUA_LIBRARIES})
 
+find_package(OpenTracing)
+target_link_libraries(wrk OpenTracing::opentracing)
+

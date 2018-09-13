@@ -6,7 +6,9 @@
 #include "hdr_histogram.h"
 #include "stats.h"
 #include "assert.h"
-//#include <opentracing/tracer.h>
+#include <opentracing/tracer.h>
+
+using namespace opentracing;
 
 
 // Max recordable latency of 1 day
@@ -87,6 +89,7 @@ static void usage() {
            "                           [Required Parameter]                  \n"
            "                                                                 \n"
            "                                                                 \n"
+           "    -o, --opentracing      Enables opentracing framework         \n"
            "  Numeric arguments may include a SI unit (1k, 1M, 1G)           \n"
            "  Time arguments may include a time unit (2s, 2m, 2h)            \n");
 }
