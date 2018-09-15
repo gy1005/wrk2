@@ -6,9 +6,9 @@
 #include "hdr_histogram.h"
 #include "stats.h"
 #include "assert.h"
-#include <opentracing/tracer.h>
 
-using namespace opentracing;
+#include <jaegertracing/Tracer.h>
+#include <yaml-cpp/yaml.h>
 
 
 // Max recordable latency of 1 day
@@ -32,6 +32,7 @@ static struct config {
     bool     print_realtime_latency;
     char    *script;
     SSL_CTX *ctx;
+    jaegertracing::Config jaegerConfig;
 } cfg;
 
 static struct {
@@ -89,7 +90,8 @@ static void usage() {
            "                           [Required Parameter]                  \n"
            "                                                                 \n"
            "                                                                 \n"
-           "    -o, --opentracing      Enables opentracing framework         \n"
+           "    -J, --Jaeger           Enables distributed tracing with      \n"
+           "                           Jaeger                                \n"
            "  Numeric arguments may include a SI unit (1k, 1M, 1G)           \n"
            "  Time arguments may include a time unit (2s, 2m, 2h)            \n");
 }
@@ -660,8 +662,11 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
         script_request(thread->L, &c->request, &c->length);
     }
 
+
+
     char  *buf = c->request + c->written;
-    size_t len = c->length  - c->written;
+    size_t len = c->length - c->written;
+
     size_t n;
 
 
@@ -745,6 +750,7 @@ static struct option longopts[] = {
     { "help",           no_argument,       NULL, 'h' },
     { "version",        no_argument,       NULL, 'v' },
     { "rate",           required_argument, NULL, 'R' },
+    { "Jaeger",         no_argument,       NULL, 'J' },
     { NULL,             0,                 NULL,  0  }
 };
 
@@ -812,6 +818,10 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 printf("wrk %s [%s] ", VERSION, aeGetApiName());
                 printf("Copyright (C) 2012 Will Glozer\n");
                 break;
+//            case 'J':
+//                auto configFile = YAML::LoadFile("../JaegerConfig.yml");
+//                cfg->jaegerConfig = jaegertracing::Config::parse(configFile);
+//                break;
             case 'h':
             case '?':
             case ':':

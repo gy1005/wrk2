@@ -10,8 +10,8 @@
 
 typedef struct {
     int scale;
-    char *base;
-    char *units[];
+    char const *base;
+    char const *units[];
 } units;
 
 
@@ -42,7 +42,7 @@ units metric_units = {
 
 static char *format_units(long double n, units *m, int p) {
     long double amt = n, scale;
-    char *unit = m->base;
+    char const *unit = m->base;
     char *msg = NULL;
 
     scale = m->scale * 0.85;

@@ -1,7 +1,8 @@
 cmake_minimum_required (VERSION 2.6)
 project (wrk)
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pthread")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pthread -DHAVE_CONFIG_H")
+
 
 
 if (UNIX)
@@ -39,6 +40,18 @@ find_package(Lua51 REQUIRED)
 include_directories(/usr/local/include ${LUA_INCLUDE_DIR})
 target_link_libraries(wrk ${LUA_LIBRARIES})
 
-find_package(OpenTracing)
-target_link_libraries(wrk OpenTracing::opentracing)
+#find_package(OpenTracing)
+#target_link_libraries(wrk OpenTracing::opentracing)
+
+find_package(Boost)
+IF (Boost_FOUND)
+    INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIR})
+    ADD_DEFINITIONS( "-DHAS_BOOST" )
+ENDIF()
+
+find_package(jaegertracing)
+target_link_libraries(wrk jaegertracing)
+
+target_link_libraries(wrk yaml-cpp)
+
 
