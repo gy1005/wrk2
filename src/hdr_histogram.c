@@ -51,7 +51,11 @@ static int32_t get_sub_bucket_index(int64_t value, int32_t bucket_index, int32_t
 
 static int32_t counts_index(struct hdr_histogram* h, int32_t bucket_index, int32_t sub_bucket_index)
 {
+    // if (bucket_index >= h->bucket_count) 
+        // printf ("bucket_index = %d, h->bucket_count = %d\n", bucket_index, h->bucket_count);
     assert(bucket_index < h->bucket_count);
+
+
     assert(sub_bucket_index < h->sub_bucket_count);
     assert(bucket_index == 0 || (sub_bucket_index >= h->sub_bucket_half_count));
 

@@ -49,11 +49,21 @@ typedef struct {
     uint64_t mean;
     struct hdr_histogram *latency_histogram;
     struct hdr_histogram *real_latency_histogram;
+    struct hdr_histogram *nginx_lua_histogram;
+    struct hdr_histogram *get_histogram;
+    struct hdr_histogram *find_histogram;
+    struct hdr_histogram *set_histogram;
+    struct hdr_histogram *real_nginx_lua_histogram;
+    struct hdr_histogram *real_get_histogram;
+    struct hdr_histogram *real_find_histogram;
+    struct hdr_histogram *real_set_histogram;
     tinymt64_t rand;
     lua_State *L;
     errors errors;
     struct connection *cs;
     FILE* ff;
+    int memcached_misses;
+    int memcached_hits;    
 } thread;
 
 typedef struct {
@@ -88,5 +98,14 @@ typedef struct connection {
     uint64_t actual_latency_start[MAXO+1];
     // Internal tracking numbers (used purely for debugging):
 } connection;
+
+typedef struct latencies {
+    int if_hit;
+    int nginx_lua;
+    int set;
+    int get;
+    int find;
+    
+} latencies;
 
 #endif /* WRK_H */

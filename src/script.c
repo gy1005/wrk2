@@ -155,17 +155,49 @@ void script_request(lua_State *L, char **buf, size_t *len) {
     lua_pop(L, pop);
 }
 
+
+void script_response_get_latency(lua_State *L, int status, buffer *headers, buffer *body, latencies *l) {
+    lua_getglobal(L, "response");
+    lua_pushinteger(L, status);
+    lua_newtable(L);
+
+    for (char *c = headers->buffer; c < headers->cursor; ) {        
+        c = buffer_pushlstring(L, c);
+        c = buffer_pushlstring(L, c);
+        lua_rawset(L, -3);        
+    }
+    
+    
+    lua_pushlstring(L, body->buffer, body->cursor - body->buffer);
+    // int err = lua_pcall(L, 3, 5, 0);
+        
+    // if (err)
+    //     fprintf(stderr, "lua_pcall: %s\n", lua_tostring(L,1));
+
+    lua_call(L, 3, 5);    
+   
+    l->if_hit = lua_tointeger(L, -5);
+    l->nginx_lua = lua_tointeger(L, -4);
+    l->get = lua_tointeger(L, -3);
+    l->find = lua_tointeger(L, -2);
+    l->set = lua_tointeger(L, -1);   
+
+    buffer_reset(headers);
+    buffer_reset(body);
+    lua_pop(L, 5);    
+}
+
 void script_response(lua_State *L, int status, buffer *headers, buffer *body) {
     lua_getglobal(L, "response");
     lua_pushinteger(L, status);
     lua_newtable(L);
 
-    for (char *c = headers->buffer; c < headers->cursor; ) {
+    for (char *c = headers->buffer; c < headers->cursor; ) {        
         c = buffer_pushlstring(L, c);
         c = buffer_pushlstring(L, c);
-        lua_rawset(L, -3);
+        lua_rawset(L, -3);        
     }
-
+    
     lua_pushlstring(L, body->buffer, body->cursor - body->buffer);
     lua_call(L, 3, 0);
 

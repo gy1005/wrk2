@@ -11,6 +11,8 @@
 #define MAX_LATENCY 24L * 60 * 60 * 1000000
 
 uint64_t raw_latency[MAXTHREADS][MAXL];
+pthread_mutex_t lock;
+// FILE *pt;
 
 static struct config {
     uint64_t threads;
@@ -110,9 +112,14 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGINT,  SIG_IGN);
 
+    // pt = fopen("/filer01/yg397/three_tier/pt.txt", "w");
+    assert (pthread_mutex_init(&lock, NULL) == 0);
+
     pthread_mutex_init(&statistics.mutex, NULL);
     statistics.requests = stats_alloc(10);
     thread *threads = zcalloc(cfg.threads * sizeof(thread));
+
+
 
     hdr_init(1, MAX_LATENCY, 3, &(statistics.requests->histogram));
 
@@ -138,6 +145,8 @@ int main(int argc, char **argv) {
         t->monitored     = 0;
         t->target        = throughput/10; //Shuang
         t->accum_latency = 0;
+        t->memcached_misses   = 0;
+        t->memcached_hits   = 0;
         t->L = script_create(cfg.script, url, headers);
         script_init(L, t, argc - optind, &argv[optind]);
 
@@ -177,8 +186,31 @@ int main(int argc, char **argv) {
 
     struct hdr_histogram* latency_histogram;
     struct hdr_histogram* real_latency_histogram;
+
+    struct hdr_histogram* nginx_lua_histogram;
+    struct hdr_histogram* get_histogram;
+    struct hdr_histogram* find_histogram;
+    struct hdr_histogram* set_histogram;
+
+    struct hdr_histogram* real_nginx_lua_histogram;
+    struct hdr_histogram* real_get_histogram;
+    struct hdr_histogram* real_find_histogram;
+    struct hdr_histogram* real_set_histogram;
+    
     hdr_init(1, MAX_LATENCY, 3, &latency_histogram);
     hdr_init(1, MAX_LATENCY, 3, &real_latency_histogram);
+
+    hdr_init(1, MAX_LATENCY, 3, &nginx_lua_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &get_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &find_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &set_histogram);
+
+    hdr_init(1, MAX_LATENCY, 3, &real_nginx_lua_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &real_get_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &real_find_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &real_set_histogram);
+
+   
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
@@ -186,6 +218,9 @@ int main(int argc, char **argv) {
     }
 
     uint64_t runtime_us = time_us() - start;
+
+    int misses = 0;
+    int hits = 0;
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
@@ -200,6 +235,17 @@ int main(int argc, char **argv) {
 
         hdr_add(latency_histogram, t->latency_histogram);
         hdr_add(real_latency_histogram, t->real_latency_histogram);
+
+        hdr_add(nginx_lua_histogram, t->nginx_lua_histogram);
+        hdr_add(get_histogram, t->get_histogram);
+        hdr_add(find_histogram, t->find_histogram);
+        hdr_add(set_histogram, t->set_histogram);
+
+        hdr_add(real_nginx_lua_histogram, t->real_nginx_lua_histogram);
+        hdr_add(real_get_histogram, t->real_get_histogram);
+        hdr_add(real_find_histogram, t->real_find_histogram);
+        hdr_add(real_set_histogram, t->real_set_histogram);
+
         
         if (cfg.print_all_responses) {
             char filename[10] = {0};
@@ -211,7 +257,12 @@ int main(int argc, char **argv) {
                 fprintf(ff, "%" PRIu64 "\n", raw_latency[i][j]);
             fclose(ff);
         }
+        misses += t->memcached_misses;
+        hits += t->memcached_hits;
+
     }
+
+    // fclose(pt);
 
     long double runtime_s   = runtime_us / 1000000.0;
     long double req_per_s   = complete   / runtime_s;
@@ -228,8 +279,27 @@ int main(int argc, char **argv) {
 
     if (cfg.latency) {
         print_hdr_latency(latency_histogram,
-                "Recorded Latency");
+                "Total Latency");
         printf("----------------------------------------------------------\n");
+
+        print_hdr_latency(nginx_lua_histogram,
+                "Nginx Latency");
+        printf("----------------------------------------------------------\n");
+
+        print_hdr_latency(get_histogram,
+                "Memcached Get Latency");
+        printf("----------------------------------------------------------\n");
+
+        print_hdr_latency(set_histogram,
+                "Memcached Set Latency");
+        printf("----------------------------------------------------------\n");
+
+        print_hdr_latency(find_histogram,
+                "MongoDB Latency");
+        printf("----------------------------------------------------------\n");
+
+        printf("Memcached Miss Rate = %3f\n", (double) misses/(misses+hits));
+
     }
 
     char *runtime_msg = format_time_us(runtime_us);
@@ -266,6 +336,16 @@ void *thread_main(void *arg) {
     hdr_init(1, MAX_LATENCY, 3, &thread->latency_histogram);
     hdr_init(1, MAX_LATENCY, 3, &thread->real_latency_histogram);
 
+    hdr_init(1, MAX_LATENCY, 3, &thread->nginx_lua_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->get_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->find_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->set_histogram);
+
+    hdr_init(1, MAX_LATENCY, 3, &thread->real_nginx_lua_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->real_get_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->real_find_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->real_set_histogram);
+
     char *request = NULL;
     size_t length = 0;
 
@@ -276,9 +356,13 @@ void *thread_main(void *arg) {
     thread->ff = NULL;
     if ((cfg.print_realtime_latency) && (thread->tid == 0)) {
         char filename[50];
-        snprintf(filename, 50, "/filer-01/datasets/nginx/%" PRIu64 ".txt", thread->tid);
+        snprintf(filename, 50, "/filer01/yg397/three_tier/%" PRIu64 ".txt", thread->tid);
         thread->ff = fopen(filename, "w");
     }
+
+    // char filename[50];
+    // snprintf(filename, 50, "/filer01/yg397/three_tier/%" PRIu64 ".txt", thread->tid);
+    // thread->ff = fopen(filename, "w");
 
 
     double throughput = (thread->throughput / 1000000.0) / thread->connections;
@@ -428,6 +512,7 @@ static int header_field(http_parser *parser, const char *at, size_t len) {
         *c->headers.cursor++ = '\0';
         c->state = FIELD;
     }
+    // printf("print %s\n",at);
     buffer_append(&c->headers, at, len);
     return 0;
 }
@@ -438,6 +523,7 @@ static int header_value(http_parser *parser, const char *at, size_t len) {
         *c->headers.cursor++ = '\0';
         c->state = VALUE;
     }
+    
     buffer_append(&c->headers, at, len);
     return 0;
 }
@@ -546,18 +632,26 @@ static int response_complete(http_parser *parser) {
     int status = parser->status_code;
 
     thread->complete++;
-    //printf("complete %"PRIu64"\n", thread->complete);
+    // printf("complete %"PRIu64"\n", thread->complete);
     thread->requests++;
 
     if (status > 399) {
         thread->errors.status++;
     }
 
+   
+    struct latencies l; 
     if (c->headers.buffer) {
         *c->headers.cursor++ = '\0';
-        script_response(thread->L, status, &c->headers, &c->body);
+        
+        
+        script_response_get_latency(thread->L, status, &c->headers, &c->body, &l);
+        
+        
         c->state = FIELD;
     }
+        
+   
 
     if (now >= thread->stop_at) {
         aeStop(thread->loop);
@@ -570,19 +664,93 @@ static int response_complete(http_parser *parser) {
         //printf("complete %"PRIu64" @ %"PRIu64"\n", c->complete, now);
         assert(now > c->actual_latency_start[c->complete & MAXO] );
         uint64_t actual_latency_timing = now - c->actual_latency_start[c->complete & MAXO];
+
+        // printf("if_hit = %d, nginx-lua = %d , get = %d, find = %d, set = %d, total = %d\n", l.if_hit, l.nginx_lua, l.get, l.find, l.set, actual_latency_timing);
+
         hdr_record_value(thread->latency_histogram, actual_latency_timing);
         hdr_record_value(thread->real_latency_histogram, actual_latency_timing);
+
+        int nginx_latency = 0;      
+        
+        
+        if (l.if_hit){
+            thread->memcached_hits++;
+
+            if (actual_latency_timing > l.nginx_lua) {
+                nginx_latency = actual_latency_timing -  l.get;
+                hdr_record_value(thread->nginx_lua_histogram, nginx_latency);
+                hdr_record_value(thread->real_nginx_lua_histogram, nginx_latency);
+            }
+                
+            else {
+                // printf("actual_latency_timing = %d, nginx-lua = %d, get = %d\n", actual_latency_timing, l.nginx_lua, l.get);
+                nginx_latency = l.nginx_lua -  l.get;
+                hdr_record_value(thread->nginx_lua_histogram, nginx_latency);
+                hdr_record_value(thread->real_nginx_lua_histogram, nginx_latency);
+            }
+                
+
+            hdr_record_value(thread->get_histogram, l.get);           
+            hdr_record_value(thread->real_get_histogram, l.get);           
+        }
+        else {
+            thread->memcached_misses++;
+            // printf("nginx_lua_histogram\n");
+            if (actual_latency_timing > l.nginx_lua) {
+                nginx_latency = actual_latency_timing - l.get - l.find - l.set;
+                hdr_record_value(thread->nginx_lua_histogram, nginx_latency);
+                hdr_record_value(thread->real_nginx_lua_histogram, nginx_latency);
+            }
+                
+            else {
+                // printf("actual_latency_timing = %d, nginx-lua = %d, get = %d, set = %d, find = %d\n", actual_latency_timing, l.nginx_lua, l.get, l.get, l.find);
+                nginx_latency = l.nginx_lua - l.get - l.find - l.set;
+                hdr_record_value(thread->nginx_lua_histogram, nginx_latency);
+                hdr_record_value(thread->real_nginx_lua_histogram, nginx_latency);
+            }
+                
+
+            hdr_record_value(thread->get_histogram, l.get);
+            hdr_record_value(thread->real_get_histogram, l.get);
+            
+            hdr_record_value(thread->find_histogram, l.find);
+            hdr_record_value(thread->real_find_histogram, l.find);
+
+            hdr_record_value(thread->set_histogram, l.set);
+            hdr_record_value(thread->real_set_histogram, l.set);
+        }
+
+        
+        
+        // fprintf(thread->ff, "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\n", actual_latency_timing, nginx_latency, l.get, l.set, l.find);
+        // fflush(thread->ff);
+
+        // pthread_mutex_lock(&lock);        
+        // fprintf(pt, "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\t" "%" PRId64 "\n", actual_latency_timing, nginx_latency, l.get, l.set, l.find);
+        // fflush(pt);
+        // pthread_mutex_unlock(&lock);
+
+  
     
         thread->monitored++;
         thread->accum_latency += actual_latency_timing;
         if (thread->monitored == thread->target) {       
             if (cfg.print_realtime_latency && thread->tid == 0) {
-                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_latency_histogram, 99));
+                fprintf(thread->ff, "%" PRId64 "\t", hdr_value_at_percentile(thread->real_latency_histogram, 99));
+                fprintf(thread->ff, "%" PRId64 "\t", hdr_value_at_percentile(thread->real_nginx_lua_histogram, 99));
+                fprintf(thread->ff, "%" PRId64 "\t", hdr_value_at_percentile(thread->real_get_histogram, 99));
+                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_find_histogram, 99));
+                // fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_set_histogram, 99));
+
                 fflush(thread->ff);
             }
             thread->monitored = 0;
             thread->accum_latency = 0;
             hdr_reset(thread->real_latency_histogram);
+            hdr_reset(thread->real_nginx_lua_histogram);
+            hdr_reset(thread->real_get_histogram);
+            hdr_reset(thread->real_find_histogram);
+            // hdr_reset(thread->real_set_histogram);
         }
         if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
             raw_latency[thread->tid][thread->complete] = actual_latency_timing;
